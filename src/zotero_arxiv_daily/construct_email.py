@@ -52,7 +52,15 @@ def get_empty_html():
   """
   return block_template
 
-def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affiliations:str=None):
+def get_block_html(
+    title:str,
+    authors:str,
+    rate:str,
+    tldr:str,
+    pdf_url:str,
+    affiliations:str=None,
+    translated_abstract:str=None,
+):
     block_template = """
     <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
     <tr>
@@ -77,6 +85,7 @@ def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affi
             <strong>TLDR:</strong> {tldr}
         </td>
     </tr>
+    {translated_abstract_block}
 
     <tr>
         <td style="padding: 8px 0;">
@@ -85,7 +94,24 @@ def get_block_html(title:str, authors:str, rate:str, tldr:str, pdf_url:str, affi
     </tr>
 </table>
 """
-    return block_template.format(title=title, authors=authors,rate=rate, tldr=tldr, pdf_url=pdf_url, affiliations=affiliations)
+    translated_abstract_block = ""
+    if translated_abstract:
+        translated_abstract_block = f"""
+        <tr>
+            <td style="font-size: 14px; color: #333; padding: 8px 0; line-height: 1.65;">
+                <strong>中文摘要:</strong> {translated_abstract}
+            </td>
+        </tr>
+        """
+    return block_template.format(
+        title=title,
+        authors=authors,
+        rate=rate,
+        tldr=tldr,
+        pdf_url=pdf_url,
+        affiliations=affiliations,
+        translated_abstract_block=translated_abstract_block,
+    )
 
 def get_stars(score:float):
     full_star = '<span class="full-star">⭐</span>'
@@ -125,7 +151,17 @@ def render_email(papers:list[Paper]) -> str:
                 affiliations += ', ...'
         else:
             affiliations = 'Unknown Affiliation'
-        parts.append(get_block_html(p.title, authors, rate, p.tldr, p.pdf_url, affiliations))
+        parts.append(
+            get_block_html(
+                p.title,
+                authors,
+                rate,
+                p.tldr,
+                p.pdf_url,
+                affiliations,
+                p.translated_abstract,
+            )
+        )
 
     content = '<br>' + '</br><br>'.join(parts) + '</br>'
     return framework.replace('__CONTENT__', content)
