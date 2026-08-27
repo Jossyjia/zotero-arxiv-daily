@@ -46,12 +46,27 @@ class Paper:
     pdf_url: Optional[str] = None
     full_text: Optional[str] = None
     tldr: Optional[str] = None
+    translated_abstract: Optional[str] = None
     affiliations: Optional[list[str]] = None
     score: Optional[float] = None
 
-    def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
+    def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> tuple[str, Optional[str]]:
         lang = llm_params.get('language', 'English')
-        prompt = f"Given the following information of a paper, generate a one-sentence TLDR summary in {lang}:\n\n"
+        prompt = f"""Given the following information of a scientific paper, produce both a concise TLDR and a Chinese translation of the abstract.
+
+Return ONLY a valid JSON object with exactly these keys:
+{{
+  \"tldr\": \"...\",
+  \"chinese_abstract\": \"...\"
+}}
+
+Requirements:
+1. \"tldr\": Write one concise sentence in {lang}. State the paper's main problem, method, and core contribution whenever the source text supports them.
+2. \"chinese_abstract\": Faithfully translate the COMPLETE provided Abstract into fluent Simplified Chinese. Do not summarize, shorten, or omit claims. Preserve method names, model names, datasets, benchmarks, technical terms, numbers, and experimental conclusions. If a technical term is clearer in English, keep the English term in parentheses after the Chinese translation.
+3. Do not invent information that is not present in the paper.
+4. If no Abstract is provided, set \"chinese_abstract\" to an empty string.
+
+"""
         if self.title:
             prompt += f"Title:\n {self.title}\n\n"
 
@@ -63,7 +78,7 @@ class Paper:
 
         if not self.full_text and not self.abstract:
             logger.warning(f"Neither full text nor abstract is provided for {self.url}")
-            return "Failed to generate TLDR. Neither full text nor abstract is provided"
+            return "Failed to generate TLDR. Neither full text nor abstract is provided", None
         
         # use gpt-4o tokenizer for estimation
         enc = tiktoken.encoding_for_model("gpt-4o")
@@ -71,28 +86,45 @@ class Paper:
         prompt_tokens = prompt_tokens[:4000]  # truncate to 4000 tokens
         prompt = enc.decode(prompt_tokens)
         
-        tldr = _request_llm(
+        response_text = _request_llm(
             openai_client,
             llm_params,
             [
                 {
                     "role": "system",
-                    "content": f"You are an assistant who perfectly summarizes scientific paper, and gives the core idea of the paper to the user. Your answer should be in {lang}.",
+                    "content": (
+                        "You are an assistant who accurately summarizes scientific papers and "
+                        "faithfully translates scientific abstracts into Simplified Chinese. "
+                        "Follow the requested JSON output format exactly."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
         )
-        return tldr
+
+        try:
+            json_match = re.search(r'\{.*\}', response_text, flags=re.DOTALL)
+            if json_match is None:
+                raise ValueError("No JSON object found in LLM response")
+            result = json.loads(json_match.group(0))
+            tldr = str(result["tldr"]).strip()
+            translated_abstract = str(result.get("chinese_abstract", "")).strip() or None
+            return tldr, translated_abstract
+        except Exception as e:
+            logger.warning(f"Failed to parse structured TLDR/translation for {self.url}: {e}")
+            return response_text.strip(), None
     
     def generate_tldr(self, openai_client:OpenAI,llm_params:dict) -> str:
         try:
-            tldr = self._generate_tldr_with_llm(openai_client,llm_params)
+            tldr, translated_abstract = self._generate_tldr_with_llm(openai_client,llm_params)
             self.tldr = tldr
+            self.translated_abstract = translated_abstract
             return tldr
         except Exception as e:
             logger.warning(f"Failed to generate tldr of {self.url}: {e}")
             tldr = self.abstract
             self.tldr = tldr
+            self.translated_abstract = None
             return tldr
 
     def _generate_affiliations_with_llm(self, openai_client:OpenAI,llm_params:dict) -> Optional[list[str]]:
