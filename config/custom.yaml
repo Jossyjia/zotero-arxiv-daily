@@ -1,7 +1,11 @@
 zotero:
   user_id: ${oc.env:ZOTERO_ID}
   api_key: ${oc.env:ZOTERO_KEY}
-  include_path: null # Or set a list of glob patterns, e.g. ["2026/survey/**","2026/reading-group/**"]
+  include_path:
+    - "D-year1/idea1"
+    - "D-year1/idea2"
+    - "D-year1/memory"
+    - "D-year1/skill"
 
 email:
   sender: ${oc.env:SENDER}
